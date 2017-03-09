@@ -48,7 +48,7 @@ type
     FSky: TSegment;
     FBird: TBird;
     FColumns: array [0 .. 5] of TSprite;
-    FColumnColliders: array [0 .. 2] of TSegment;
+    FColumnColliders: array [0 .. 5] of TSegment;
     FScoreColliders: array [0 .. 2] of TSegment;
     FScore: Integer;
     procedure OnIdleHandler(Sender: TObject; var Done: Boolean);
@@ -63,6 +63,8 @@ const
   C_ANIM_BIRD_FLAP = 1;
   C_ANIM_BIRD_DEAD = 2;
 
+  C_DOOR_HEIGHT = 60;
+
 var
   Form1: TForm1;
 
@@ -70,6 +72,11 @@ implementation
 
 {$R *.dfm}
 // {$DEFINE DEBUGVIEW}
+{$IFDEF DEBUGVIEW}
+
+const
+  C_SCALE_FACTOR = 1;
+{$ENDIF}
 
 function GetLeftNormal(AVector: TVector): TVector;
 begin
@@ -147,7 +154,7 @@ begin
   FGroundCollider := CreateSegment(100, 320 + 128 + 4, ClientWidth - 100, 320 + 128 + 4);
   for I := 0 to 2 do
     FScoreColliders[I] := CreateSegment(0, FBackground.Asset.Height - 10, 0, 10);
-  for I := 0 to 2 do
+  for I := 0 to 5 do
     FColumnColliders[I] := CreateSegment(0, 1, 0, 0);
   Restart;
 end;
@@ -164,12 +171,12 @@ end;
 
 function GetReflectionTop(AColumn: TSprite): Single;
 begin
-  Result := AColumn.Position.Y - AColumn.Asset.Height - 100;
+  Result := AColumn.Position.Y - AColumn.Asset.Height - C_DOOR_HEIGHT;
 end;
 
 function GetColumnColliderPositionX(AColumn: TSprite): Single;
 begin
-  Result := AColumn.Position.X + 45;
+  Result := AColumn.Position.X + 55;
 end;
 
 procedure SetColumnColliderSegment(var AColumnCollider: TSegment; AColumn: TSprite);
@@ -196,7 +203,7 @@ begin
   FBird.Rigidbody.Velocity.X := FUpForce.X;
   FBird.Rigidbody.Velocity.Y := FUpForce.Y;
   FBackground.Position := PointF(0, 0);
-  FBackground.Rigidbody.Velocity.X := -3;
+  FBackground.Rigidbody.Velocity.X := -4;
   FBackground2.Position := PointF(FBackground.Asset.Width, 0);
   FGround.Position := PointF(0, 320 - 12);
   FGround2.Position := PointF(FGround.Asset.Width, 320 - 12);
@@ -207,6 +214,8 @@ begin
     FColumns[I + 3].Position := PointF(L, GetReflectionTop(FColumns[I]));
     FColumnColliders[I].Position.X := GetColumnColliderPositionX(FColumns[I]);
     SetColumnColliderSegment(FColumnColliders[I], FColumns[I]);
+    FColumnColliders[I + 3].Position.X := FColumnColliders[I].Position.X;
+    SetColumnColliderSegment(FColumnColliders[I + 3], FColumns[I + 3]);
     FScoreColliders[I].Position.X := GetScoreColliderPositionX(FColumns[I]);
     FScoreColliders[I].Active := True;
   end;
@@ -262,6 +271,25 @@ begin
   Result := APerpLength <= ACircleCollider.Radius;
 end;
 
+function CircleVsSegment(ACircleCollider: TCircleCollider; ASegment: TSegment; out APerpLength: Single): Boolean;
+var
+  LDistance: TVector;
+  LDotProduct1, LDotProduct2: Single;
+begin
+  if CircleVsLine(ACircleCollider, ASegment, APerpLength) then
+  begin
+    LDistance.X := ACircleCollider.GameObject.Position.X + ACircleCollider.Radius - ASegment.Position.X;
+    LDistance.Y := ACircleCollider.GameObject.Position.Y + ACircleCollider.Radius - ASegment.Position.Y;
+    LDotProduct1 := LDistance.DotProduct(ASegment.Vector);
+    LDistance.X := ACircleCollider.GameObject.Position.X + ACircleCollider.Radius - (ASegment.Position.X + ASegment.Vector.X);
+    LDistance.Y := ACircleCollider.GameObject.Position.Y + ACircleCollider.Radius - (ASegment.Position.Y + ASegment.Vector.Y);
+    LDotProduct2 := LDistance.DotProduct(ASegment.Vector);
+    Result := ((LDotProduct1 > 0) and (LDotProduct2 < 0)) or ((LDotProduct1 < 0) and (LDotProduct2 > 0));
+  end
+  else
+    Result := False;
+end;
+
 function ResolveCircleVsLine(ACircleCollider: TCircleCollider; ALine: TSegment; APerpLength: Single): TVector;
 begin
   Result := ACircleCollider.GameObject.Rigidbody.Velocity.Normalize;
@@ -312,9 +340,11 @@ begin
       SetColumnColliderSegment(FColumnColliders[I], FColumns[I]);
       FColumns[I + 3].Position.Offset(L, 0);
       FColumns[I + 3].Position.Y := GetReflectionTop(FColumns[I]);
+      SetColumnColliderSegment(FColumnColliders[I + 3], FColumns[I + 3]);
       FScoreColliders[I].Active := True;
     end;
     FColumnColliders[I].Position.X := GetColumnColliderPositionX(FColumns[I]);
+    FColumnColliders[I + 3].Position.X := FColumnColliders[I].Position.X;
     FScoreColliders[I].Position.X := GetScoreColliderPositionX(FColumns[I]);
   end;
   { COLLISION DETECTION }
@@ -325,13 +355,17 @@ begin
   end
   else
   begin
-    if FBird.IsDead then
-    else
+    if not FBird.IsDead then
       for I := 0 to 2 do
-        if CircleVsLine(TCircleCollider(FBird.Collider), FColumnColliders[I], LPerpLength) then
+        if (CircleVsSegment(TCircleCollider(FBird.Collider), FColumnColliders[I], LPerpLength) and (LPerpLength > 0)) then
         begin
           FBackground.Rigidbody.Velocity.X := 0;
           Die(FBird, ResolveCircleVsLine(TCircleCollider(FBird.Collider), FColumnColliders[I], LPerpLength).ToPointF);
+        end
+        else if (CircleVsSegment(TCircleCollider(FBird.Collider), FColumnColliders[I + 3], LPerpLength) and (LPerpLength > 0)) then
+        begin
+          FBackground.Rigidbody.Velocity.X := 0;
+          Die(FBird, ResolveCircleVsLine(TCircleCollider(FBird.Collider), FColumnColliders[I + 3], LPerpLength).ToPointF);
         end
         else if FScoreColliders[I].Active and CircleVsLine(TCircleCollider(FBird.Collider), FScoreColliders[I], LPerpLength) then
         begin
@@ -393,17 +427,17 @@ var
   LColor: TColor;
   LPoint: TPoint;
   LHead: TPoint;
-  // LMatrix: XFORM;
+  LMatrix: XFORM;
   I: Integer;
 {$ENDIF}
 begin
 {$IFDEF DEBUGVIEW}
-  // SetGraphicsMode(Canvas.Handle, GM_ADVANCED);
-  // GetWorldTransform(Canvas.Handle, LMatrix);
-  // LMatrix.eM11 := 0.5;
-  // LMatrix.eM22 := 0.5;
-  // LMatrix.eDy := ClientHeight / 4;
-  // SetWorldTransform(Canvas.Handle, LMatrix);
+  SetGraphicsMode(Canvas.Handle, GM_ADVANCED);
+  GetWorldTransform(Canvas.Handle, LMatrix);
+  LMatrix.eM11 := C_SCALE_FACTOR;
+  LMatrix.eM22 := C_SCALE_FACTOR;
+  LMatrix.eDy := ClientHeight * (1 - C_SCALE_FACTOR) / 2;
+  SetWorldTransform(Canvas.Handle, LMatrix);
 {$ENDIF}
   GameEngine1.DrawScene(Canvas);
   if FBird.IsDead then
@@ -444,7 +478,7 @@ begin
   DrawSegment(Canvas, FSky);
   for I := 0 to 2 do
     DrawSegment(Canvas, FScoreColliders[I]);
-  for I := 0 to 2 do
+  for I := 0 to 5 do
     DrawSegment(Canvas, FColumnColliders[I]);
 {$ENDIF}
 end;
@@ -475,8 +509,6 @@ procedure TAnimation.Animate;
 const
   ANIM_LENGTH = 200;
 begin
-  // if not FStarted then
-  // Exit;
   if GetTickCount < FLastAnimChangeTime + ANIM_LENGTH then
     FSprite.CurrentFrame := C_ANIM_BIRD_FLAP
   else
