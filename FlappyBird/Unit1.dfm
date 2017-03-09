@@ -1,0 +1,20 @@
+object Form1: TForm1
+  Left = 0
+  Top = 0
+  BorderStyle = bsNone
+  BorderWidth = 2
+  Caption = 'Form1'
+  ClientHeight = 435
+  ClientWidth = 262
+  Color = clBlack
+  DoubleBuffered = True
+  ParentFont = True
+  OldCreateOrder = False
+  Position = poScreenCenter
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  OnKeyPress = FormKeyPress
+  OnPaint = FormPaint
+  PixelsPerInch = 96
+  TextHeight = 13
+end
