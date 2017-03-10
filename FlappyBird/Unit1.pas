@@ -15,11 +15,19 @@ type
     FStarted: Boolean;
     procedure Start;
     procedure Stop;
-    procedure Animate;
+    procedure Animate; virtual; abstract;
+  end;
+
+  TDieAnimation = class(TAnimation)
+    procedure Animate; override;
+  end;
+
+  TBirdAnimation = class(TAnimation)
+    procedure Animate; override;
   end;
 
   TBird = class(TSprite)
-    Animation: TAnimation;
+    Animation: TBirdAnimation;
     IsDead: Boolean;
   end;
 
@@ -47,6 +55,7 @@ type
     FGroundCollider: TSegment;
     FSky: TSegment;
     FBird: TBird;
+    FDieAnimation: TDieAnimation;
     FColumns: array [0 .. 5] of TSprite;
     FColumnColliders: array [0 .. 5] of TSegment;
     FScoreColliders: array [0 .. 2] of TSegment;
@@ -128,7 +137,7 @@ begin
   LCircleCollider := TCircleCollider.Create;
   LCircleCollider.Radius := FBird.Asset.Height / 2;
   FBird.AddCollider(LCircleCollider);
-  FBird.Animation := TAnimation.Create;
+  FBird.Animation := TBirdAnimation.Create;
   FBird.Animation.FSprite := FBird;
   { GROUND }
   FGround := GameEngine1.CreateSprite<TSprite>;
@@ -149,6 +158,7 @@ begin
   Canvas.Font.Quality := fqAntialiased;
   InitializeAssets;
   InitializeGameObjects;
+  FDieAnimation := TDieAnimation.Create;
   FUpForce.Y := -10 * GameEngine1.Gravity.Y;
   FSky := CreateSegment(ClientWidth - 100, 0, 100, 0);
   FGroundCollider := CreateSegment(100, 320 + 128 + 4, ClientWidth - 100, 320 + 128 + 4);
@@ -161,6 +171,7 @@ end;
 
 procedure TForm1.FormDestroy(Sender: TObject);
 begin
+  FDieAnimation.Free;
   FBird.Animation.Free;
 end;
 
@@ -220,17 +231,20 @@ begin
     FScoreColliders[I].Active := True;
   end;
   FScore := 0;
+  GameEngine1.IsGameOver := False;
   Application.OnIdle := OnIdleHandler;
 end;
 
 procedure TForm1.FormKeyPress(Sender: TObject; var Key: Char);
 begin
   if Key = #27 then
-    Close
-  else if (Key = #32) or (Key = '8') then
+    Close;
+  if GameEngine1.IsGameOver then
+    Restart;
+  if FBird.IsDead then
+    Exit;
+  if (Key = #32) or (Key = '8') then
   begin
-    if FBird.IsDead then
-      Restart;
     FBird.Rigidbody.Velocity.X := FUpForce.X;
     FBird.Rigidbody.Velocity.Y := FUpForce.Y;
   end
@@ -296,14 +310,17 @@ begin
   Result := Result * (ACircleCollider.Radius - APerpLength) / Result.DotProduct(ALine.LeftNormal);
 end;
 
-procedure Die(ABird: TBird; AResolution: TPointF);
+procedure Die(ADieAnimation: TDieAnimation; ABird: TBird; AResolution: TPointF);
 begin
   ABird.Position.Offset(AResolution);
   ABird.Rigidbody.Velocity.X := 0;
   ABird.Rigidbody.Velocity.Y := 0;
+  if ABird.IsDead then
+    Exit;
   ABird.IsDead := True;
   ABird.CurrentFrame := C_ANIM_BIRD_DEAD;
   ABird.Animation.Stop;
+  ADieAnimation.Start;
 end;
 
 procedure TForm1.UpdateScene;
@@ -351,7 +368,7 @@ begin
   if CircleVsLine(TCircleCollider(FBird.Collider), FGroundCollider, LPerpLength) then
   begin
     FBackground.Rigidbody.Velocity.X := 0;
-    Die(FBird, ResolveCircleVsLine(TCircleCollider(FBird.Collider), FGroundCollider, LPerpLength).ToPointF);
+    Die(FDieAnimation, FBird, ResolveCircleVsLine(TCircleCollider(FBird.Collider), FGroundCollider, LPerpLength).ToPointF);
   end
   else
   begin
@@ -360,12 +377,12 @@ begin
         if (CircleVsSegment(TCircleCollider(FBird.Collider), FColumnColliders[I], LPerpLength) and (LPerpLength > 0)) then
         begin
           FBackground.Rigidbody.Velocity.X := 0;
-          Die(FBird, ResolveCircleVsLine(TCircleCollider(FBird.Collider), FColumnColliders[I], LPerpLength).ToPointF);
+          Die(FDieAnimation, FBird, ResolveCircleVsLine(TCircleCollider(FBird.Collider), FColumnColliders[I], LPerpLength).ToPointF);
         end
         else if (CircleVsSegment(TCircleCollider(FBird.Collider), FColumnColliders[I + 3], LPerpLength) and (LPerpLength > 0)) then
         begin
           FBackground.Rigidbody.Velocity.X := 0;
-          Die(FBird, ResolveCircleVsLine(TCircleCollider(FBird.Collider), FColumnColliders[I + 3], LPerpLength).ToPointF);
+          Die(FDieAnimation, FBird, ResolveCircleVsLine(TCircleCollider(FBird.Collider), FColumnColliders[I + 3], LPerpLength).ToPointF);
         end
         else if FScoreColliders[I].Active and CircleVsLine(TCircleCollider(FBird.Collider), FScoreColliders[I], LPerpLength) then
         begin
@@ -382,6 +399,9 @@ begin
   { BIRD ANIMATION }
   if FBird.Animation.FStarted then
     FBird.Animation.Animate;
+  { DIE ANIMATION }
+  if FDieAnimation.FStarted then
+    FDieAnimation.Animate;
 end;
 
 procedure DrawSegment(ACanvas: TCanvas; ALine: TSegment);
@@ -441,10 +461,9 @@ begin
 {$ENDIF}
   GameEngine1.DrawScene(Canvas);
   if FBird.IsDead then
-  begin
     DrawText(Canvas, 36, Rect(0, 0, ClientWidth, 100), 'Game Over', [tfSingleLine, tfCenter, tfBottom]);
+  if GameEngine1.IsGameOver then
     DrawText(Canvas, 18, Rect(0, 110, ClientWidth, 150), 'Flap to restart', [tfSingleLine, tfCenter, tfTop]);
-  end;
   DrawText(Canvas, 24, Rect(0, ClientHeight - 80, ClientWidth, ClientHeight), Format('Score: %d', [FScore]), [tfSingleLine, tfCenter, tfTop]);
 {$IFDEF DEBUGVIEW}
   { DRAW CIRCLE COLLIDER }
@@ -505,7 +524,9 @@ begin
   FStarted := False;
 end;
 
-procedure TAnimation.Animate;
+{ TBirdAnimation }
+
+procedure TBirdAnimation.Animate;
 const
   ANIM_LENGTH = 200;
 begin
@@ -514,6 +535,20 @@ begin
   else
   begin
     FSprite.CurrentFrame := C_ANIM_BIRD_IDLE;
+    FStarted := False;
+  end;
+end;
+
+{ TDieAnimation }
+
+procedure TDieAnimation.Animate;
+const
+  ANIM_LENGTH = 2000;
+begin
+  if GetTickCount < FLastAnimChangeTime + ANIM_LENGTH then
+  else
+  begin
+    GameEngine1.IsGameOver := True;
     FStarted := False;
   end;
 end;

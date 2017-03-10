@@ -64,6 +64,7 @@ type
     FGravity: TPointF;
     function GetAsset(const &Name: string): TAsset;
   public
+    IsGameOver: Boolean;
     constructor Create;
     destructor Destroy; override;
     function CreateAsset(const AResource: string; ASize: TSize; ACount: Integer = 1): TAsset;
