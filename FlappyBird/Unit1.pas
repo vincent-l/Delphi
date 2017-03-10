@@ -72,7 +72,7 @@ const
   C_ANIM_BIRD_FLAP = 1;
   C_ANIM_BIRD_DEAD = 2;
 
-  C_DOOR_HEIGHT = 60;
+  C_DOOR_HEIGHT = 100;
 
 var
   Form1: TForm1;
@@ -84,7 +84,7 @@ implementation
 {$IFDEF DEBUGVIEW}
 
 const
-  C_SCALE_FACTOR = 1;
+  C_SCALE_FACTOR = 0.75;
 {$ENDIF}
 
 function GetLeftNormal(AVector: TVector): TVector;
@@ -224,8 +224,10 @@ begin
     FColumns[I].Position := PointF(L, GetRandomTop(FBackground.Asset.Height));
     FColumns[I + 3].Position := PointF(L, GetReflectionTop(FColumns[I]));
     FColumnColliders[I].Position.X := GetColumnColliderPositionX(FColumns[I]);
+    FColumnColliders[I].Active := True;
     SetColumnColliderSegment(FColumnColliders[I], FColumns[I]);
     FColumnColliders[I + 3].Position.X := FColumnColliders[I].Position.X;
+    FColumnColliders[I + 3].Active := True;
     SetColumnColliderSegment(FColumnColliders[I + 3], FColumns[I + 3]);
     FScoreColliders[I].Position.X := GetScoreColliderPositionX(FColumns[I]);
     FScoreColliders[I].Active := True;
@@ -355,9 +357,11 @@ begin
       FColumns[I].Position.Offset(L, 0);
       FColumns[I].Position.Y := GetRandomTop(FBackground.Asset.Height);
       SetColumnColliderSegment(FColumnColliders[I], FColumns[I]);
+      FColumnColliders[I].Active := True;
       FColumns[I + 3].Position.Offset(L, 0);
       FColumns[I + 3].Position.Y := GetReflectionTop(FColumns[I]);
       SetColumnColliderSegment(FColumnColliders[I + 3], FColumns[I + 3]);
+      FColumnColliders[I + 3].Active := True;
       FScoreColliders[I].Active := True;
     end;
     FColumnColliders[I].Position.X := GetColumnColliderPositionX(FColumns[I]);
@@ -374,18 +378,20 @@ begin
   begin
     if not FBird.IsDead then
       for I := 0 to 2 do
-        if (CircleVsSegment(TCircleCollider(FBird.Collider), FColumnColliders[I], LPerpLength) and (LPerpLength > 0)) then
+        if FColumnColliders[I].Active and CircleVsSegment(TCircleCollider(FBird.Collider), FColumnColliders[I], LPerpLength) then
         begin
           FBackground.Rigidbody.Velocity.X := 0;
           Die(FDieAnimation, FBird, ResolveCircleVsLine(TCircleCollider(FBird.Collider), FColumnColliders[I], LPerpLength).ToPointF);
         end
-        else if (CircleVsSegment(TCircleCollider(FBird.Collider), FColumnColliders[I + 3], LPerpLength) and (LPerpLength > 0)) then
+        else if FColumnColliders[I + 3].Active and CircleVsSegment(TCircleCollider(FBird.Collider), FColumnColliders[I + 3], LPerpLength) then
         begin
           FBackground.Rigidbody.Velocity.X := 0;
           Die(FDieAnimation, FBird, ResolveCircleVsLine(TCircleCollider(FBird.Collider), FColumnColliders[I + 3], LPerpLength).ToPointF);
         end
         else if FScoreColliders[I].Active and CircleVsLine(TCircleCollider(FBird.Collider), FScoreColliders[I], LPerpLength) then
         begin
+          FColumnColliders[I].Active := False;
+          FColumnColliders[I + 3].Active := False;
           FScoreColliders[I].Active := False;
           Inc(FScore);
         end;
