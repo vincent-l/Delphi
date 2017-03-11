@@ -63,16 +63,10 @@ type
     procedure OnIdleHandler(Sender: TObject; var Done: Boolean);
     procedure InitializeGameObjects;
     procedure UpdateScene;
+    procedure CollisionDetectionBroadPhase;
     procedure Restart;
     procedure WMEraseBkgnd(var WMsg: TWMEraseBkgnd); message WM_ERASEBKGND;
   end;
-
-const
-  C_ANIM_BIRD_IDLE = 0;
-  C_ANIM_BIRD_FLAP = 1;
-  C_ANIM_BIRD_DEAD = 2;
-
-  C_DOOR_HEIGHT = 100;
 
 var
   Form1: TForm1;
@@ -80,12 +74,26 @@ var
 implementation
 
 {$R *.dfm}
-// {$DEFINE DEBUGVIEW}
-{$IFDEF DEBUGVIEW}
+{$DEFINE DEBUGVIEW}
 
 const
+{$IFDEF DEBUGVIEW}
   C_SCALE_FACTOR = 0.75;
 {$ENDIF}
+  C_ANIM_BIRD_IDLE = 0;
+  C_ANIM_BIRD_FLAP = 1;
+  C_ANIM_BIRD_DEAD = 2;
+
+  C_DOOR_HEIGHT = 100;
+
+  C_GRIDX_CELL_CAPACITY = 16;
+
+type
+  TGridXCell = array [0 .. C_GRIDX_CELL_CAPACITY - 1] of TCollider;
+
+var
+  GridX: array [0 .. 4] of TGridXCell;
+  GridXCellWidth: Single;
 
 function GetLeftNormal(AVector: TVector): TVector;
 begin
@@ -120,7 +128,7 @@ begin
   { SKY }
   FBackground := GameEngine1.CreateSprite<TSprite>;
   FBackground.Asset := GameEngine1.Asset['sky'];
-  FBackground.AddRigidbody(False);
+  FBackground.AddRigidbody(0);
   { SKY 2 }
   FBackground2 := GameEngine1.CreateSprite<TSprite>(FBackground);
   { COLUMNS }
@@ -133,7 +141,7 @@ begin
   { BIRD }
   FBird := GameEngine1.CreateSprite<TBird>;
   FBird.Asset := GameEngine1.Asset['bird'];
-  FBird.AddRigidbody;
+  FBird.AddRigidbody(1);
   LCircleCollider := TCircleCollider.Create;
   LCircleCollider.Radius := FBird.Asset.Height / 2;
   FBird.AddCollider(LCircleCollider);
@@ -158,12 +166,13 @@ begin
   Canvas.Font.Quality := fqAntialiased;
   InitializeAssets;
   InitializeGameObjects;
+  GridXCellWidth := ClientWidth / Length(GridX);
   FDieAnimation := TDieAnimation.Create;
   FUpForce.Y := -10 * GameEngine1.Gravity.Y;
   FSky := CreateSegment(ClientWidth - 100, 0, 100, 0);
   FGroundCollider := CreateSegment(100, 320 + 128 + 4, ClientWidth - 100, 320 + 128 + 4);
   for I := 0 to 2 do
-    FScoreColliders[I] := CreateSegment(0, FBackground.Asset.Height - 10, 0, 10);
+    FScoreColliders[I] := CreateSegment(0, FColumns[I].Asset.Height, 0, 0);
   for I := 0 to 5 do
     FColumnColliders[I] := CreateSegment(0, 1, 0, 0);
   Restart;
@@ -325,6 +334,49 @@ begin
   ADieAnimation.Start;
 end;
 
+procedure TForm1.CollisionDetectionBroadPhase;
+var
+  LPointer: Pointer;
+  LGameObject: TGameObject;
+  I, J, C: Integer;
+  X: Single;
+begin
+  C := 0;
+  ZeroMemory(@GridX, SizeOf(GridX));
+  for LPointer in GameEngine1.GameObjects do
+  begin
+    LGameObject := TGameObject(LPointer);
+    if Assigned(LGameObject.Collider) then
+    begin
+      if LGameObject.Position.X < 0 then
+        Continue;
+      if LGameObject.Position.X > ClientWidth then
+        Continue;
+      GridX[0][C] := LGameObject.Collider;
+      Inc(C);
+    end;
+  end;
+  X := GridXCellWidth;
+  I := 0;
+  while I < Pred(Length(GridX)) do
+  begin
+    C := 0;
+    for J := 0 to Pred(C_GRIDX_CELL_CAPACITY) do
+    begin
+      if not Assigned(GridX[I][J]) then
+        Break;
+      if GridX[I][J].GameObject.Position.X > X then
+      begin
+        GridX[Succ(I)][C] := GridX[I][J];
+        GridX[I][J] := nil;
+        Inc(C);
+      end;
+    end;
+    X := X + GridXCellWidth;
+    Inc(I);
+  end;
+end;
+
 procedure TForm1.UpdateScene;
 var
   LPerpLength: Single;
@@ -368,6 +420,8 @@ begin
     FColumnColliders[I + 3].Position.X := FColumnColliders[I].Position.X;
     FScoreColliders[I].Position.X := GetScoreColliderPositionX(FColumns[I]);
   end;
+  { COLLISION DETECTION BROAD PHASE }
+  CollisionDetectionBroadPhase;
   { COLLISION DETECTION }
   if CircleVsLine(TCircleCollider(FBird.Collider), FGroundCollider, LPerpLength) then
   begin
@@ -445,6 +499,30 @@ begin
   ACanvas.TextRect(ARect, AText, ATextFormat);
 end;
 
+procedure DrawGridX(ACanvas: TCanvas; AIndex, AHeight: Integer);
+var
+  X: Integer;
+  LRectF: TRectF;
+  LColor: TColor;
+  I, C: Integer;
+begin
+  X := Round(Succ(AIndex) * GridXCellWidth);
+  ACanvas.MoveTo(X, 0);
+  LColor := ACanvas.Pen.Color;
+  ACanvas.Pen.Color := clLtGray;
+  ACanvas.Pen.Style := psDot;
+  ACanvas.LineTo(X, AHeight);
+  ACanvas.Pen.Color := LColor;
+  ACanvas.Pen.Style := psSolid;
+  C := 0;
+  for I := 0 to Pred(Length(GridX[AIndex])) do
+    if Assigned(GridX[AIndex][I]) then
+      Inc(C);
+  LRectF := RectF(0, AHeight - 100, GridXCellWidth, AHeight - 10);
+  LRectF.Offset(AIndex * GridXCellWidth, 0);
+  DrawText(ACanvas, 12, LRectF.Round, IntToStr(C), [tfSingleLine, tfCenter, tfBottom]);
+end;
+
 procedure TForm1.FormPaint(Sender: TObject);
 {$IFDEF DEBUGVIEW}
 var
@@ -505,6 +583,9 @@ begin
     DrawSegment(Canvas, FScoreColliders[I]);
   for I := 0 to 5 do
     DrawSegment(Canvas, FColumnColliders[I]);
+  { DRAW X GRID }
+  for I := 0 to Pred(Length(GridX)) do
+    DrawGridX(Canvas, I, ClientHeight);
 {$ENDIF}
 end;
 
