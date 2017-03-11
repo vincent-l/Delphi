@@ -8,7 +8,7 @@ uses
   Vcl.Graphics, Vcl.Imaging.pngimage;
 
 const
-  C_GRAVITY = 0;
+  C_GRAVITY = 1;
 
 type
   TAsset = class
@@ -32,7 +32,10 @@ type
   TGameObject = class;
 
   TCollider = class
+    Active: Boolean; // !!
+    Position: TPointF; // relative
     GameObject: TGameObject;
+    constructor Create;
   end;
 
   TRigidbody = class
@@ -77,7 +80,7 @@ type
     procedure DrawScene(ACanvas: TCanvas);
     property Gravity: TPointF read FGravity;
     property Asset[const &Name: string]: TAsset read GetAsset;
-    property GameObjects:TList read FGameObjects;
+    property GameObjects: TList read FGameObjects;
   end;
 
 var
@@ -149,6 +152,13 @@ procedure TGameObject.AddCollider(ACollider: TCollider);
 begin
   FCollider := ACollider;
   FCollider.GameObject := Self;
+end;
+
+{ TCollider }
+
+constructor TCollider.Create;
+begin
+  Active := True;
 end;
 
 { TSprite }
