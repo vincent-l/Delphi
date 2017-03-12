@@ -46,13 +46,14 @@ type
   TGameObject = class
   strict private
     FRigidbody: TRigidbody;
-    FCollider: TCollider;
+    FColliders: TList;
   public
     Position: TPointF;
+    constructor Create;
     destructor Destroy; override;
     property Rigidbody: TRigidbody read FRigidbody;
     procedure AddRigidbody(AMass: Integer);
-    property Collider: TCollider read FCollider;
+    property Colliders: TList read FColliders;
     procedure AddCollider(ACollider: TCollider);
   end;
 
@@ -133,12 +134,21 @@ end;
 
 { TGameObject }
 
+constructor TGameObject.Create;
+begin
+  FColliders := TList.Create;
+  FColliders.Capacity := 1;
+end;
+
 destructor TGameObject.Destroy;
+var
+  LPointer: Pointer;
 begin
   if FRigidbody <> nil then
     FRigidbody.Free;
-  if FCollider <> nil then
-    FCollider.Free;
+  for LPointer in FColliders do
+    TCollider(LPointer).Free;
+  FColliders.Free;
   inherited;
 end;
 
@@ -150,8 +160,8 @@ end;
 
 procedure TGameObject.AddCollider(ACollider: TCollider);
 begin
-  FCollider := ACollider;
-  FCollider.GameObject := Self;
+  ACollider.GameObject := Self;
+  FColliders.Add(ACollider);
 end;
 
 { TCollider }
