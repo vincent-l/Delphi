@@ -31,6 +31,13 @@ type
     IsDead: Boolean;
   end;
 
+  TCollider = class(GameEngine.TCollider) // interposer
+    GridXIndex: Integer;
+    // GridXCellIndex: Integer;
+    GridYIndex: Integer;
+    // GridYCellIndex: Integer;
+  end;
+
   TCircleCollider = class(TCollider)
     Radius: Single;
   end;
@@ -71,7 +78,6 @@ type
     procedure OnIdleHandler(Sender: TObject; var Done: Boolean);
     procedure InitializeGameObjects;
     procedure UpdateScene;
-    procedure CollisionDetectionBroadPhase;
     procedure Restart;
     procedure WMEraseBkgnd(var WMsg: TWMEraseBkgnd); message WM_ERASEBKGND;
   end;
@@ -82,7 +88,7 @@ var
 implementation
 
 {$R *.dfm}
-{$DEFINE DEBUGVIEW}
+// {$DEFINE DEBUGVIEW}
 
 const
 {$IFDEF DEBUGVIEW}
@@ -92,20 +98,31 @@ const
   C_ANIM_BIRD_FLAP = 1;
   C_ANIM_BIRD_DEAD = 2;
 
-  C_DOOR_HEIGHT = 100;
+  C_DOOR_HEIGHT = 70;
 
   C_GRIDX_CELLS_COUNT = 5;
   C_GRIDY_CELLS_COUNT = 3;
-  C_GRID_CELL_CAPACITY = 16;
+  // C_GRID_CELL_CAPACITY = 16;
 
-type
-  TGridCell = array [0 .. C_GRID_CELL_CAPACITY - 1] of TCollider;
+  // type
+  // TGridCell = array [1 .. C_GRID_CELL_CAPACITY] of TCollider;
+
+  // TGrid = record
+  // Grid: array of TGridCell;
+  // CellExtent: Single;
+  // end;
 
 var
-  GridX: array [0 .. C_GRIDX_CELLS_COUNT - 1] of TGridCell;
+  GridX: array [1 .. C_GRIDX_CELLS_COUNT] of TList;
   GridXCellWidth: Single;
-  GridY: array [0 .. C_GRIDY_CELLS_COUNT - 1] of TGridCell;
+  GridY: array [1 .. C_GRIDY_CELLS_COUNT] of TList;
   GridYCellHeight: Single;
+
+  // function CreateGrid(ACellsCount: Integer; ACellExtent: Single): TGrid;
+  // begin
+  // SetLength(Result.Grid, ACellsCount);
+  // Result.CellExtent := ACellExtent;
+  // end;
 
 function GetLeftNormal(AVector: TVector): TVector;
 begin
@@ -126,6 +143,7 @@ procedure TForm1.InitializeGameObjects;
 var
   LCircleCollider: TCircleCollider;
   LColumn: TAsset;
+  LGameObject: TGameObject;
   I: Integer;
 begin
   { SKY }
@@ -134,9 +152,8 @@ begin
   FBackground.AddRigidbody(0);
   FSkyCollider := TLineCollider.Create;
   FSkyCollider.Direction := ldHorizontal;
-  FSkyCollider.Position.X := FBackground.Asset.Width;
-  FSkyCollider.Vector := Vector(-FBackground.Asset.Width, 0);
-  FBackground.AddCollider(FSkyCollider);
+  FSkyCollider.Position.X := FBackground.Asset.Width - 100;
+  FSkyCollider.Vector := Vector(200 - FBackground.Asset.Width, 0);
   { SKY 2 }
   FBackground2 := GameEngine1.CreateSprite<TSprite>(FBackground);
   { COLUMNS }
@@ -179,11 +196,37 @@ begin
   FGroundCollider := TLineCollider.Create;
   FGroundCollider.Direction := ldHorizontal;
   FGroundCollider.Position.X := 100;
-  FGroundCollider.Position.Y := 146;
-  FGroundCollider.Vector := Vector(ClientWidth - 100, 0);
-  FGround.AddCollider(FGroundCollider);
+  FGroundCollider.Position.Y := 454;
+  FGroundCollider.Vector := Vector(FGround.Asset.Width - 200, 0);
   { GROUND 2 }
   FGround2 := GameEngine1.CreateSprite<TSprite>(FGround);
+  { SCENE }
+  LGameObject := TGameObject.Create;
+  GameEngine1.GameObjects.Add(LGameObject);
+  LGameObject.AddCollider(FSkyCollider);
+  LGameObject.AddCollider(FGroundCollider);
+end;
+
+procedure InitializeGrids;
+var
+  I: Integer;
+begin
+  // GridX := CreateGrid(C_GRIDX_CELLS_COUNT, ClientWidth / C_GRIDX_CELLS_COUNT);
+  // GridY := CreateGrid(C_GRIDY_CELLS_COUNT, (FGround.Position.Y + FGroundCollider.Position.Y + 1) / Length(GridY));
+  for I := 1 to C_GRIDX_CELLS_COUNT do
+    GridX[I] := TList.Create;
+  for I := 1 to C_GRIDY_CELLS_COUNT do
+    GridY[I] := TList.Create;
+end;
+
+procedure FinalizeGrids;
+var
+  I: Integer;
+begin
+  for I := 1 to C_GRIDX_CELLS_COUNT do
+    GridX[I].Free;
+  for I := 1 to C_GRIDY_CELLS_COUNT do
+    GridY[I].Free;
 end;
 
 procedure TForm1.FormCreate(Sender: TObject);
@@ -198,13 +241,15 @@ begin
   InitializeGameObjects;
   FDieAnimation := TDieAnimation.Create;
   FUpForce.Y := -10 * GameEngine1.Gravity.Y;
+  GridXCellWidth := ClientWidth / C_GRIDX_CELLS_COUNT;
+  GridYCellHeight := (FBackground.Position.Y + FGroundCollider.Position.Y + 1) / Length(GridY);
+  InitializeGrids;
   Restart;
-  GridXCellWidth := ClientWidth / Length(GridX);
-  GridYCellHeight := (FGround.Position.Y + FGroundCollider.Position.Y + 1) / Length(GridY);
 end;
 
 procedure TForm1.FormDestroy(Sender: TObject);
 begin
+  FinalizeGrids;
   FDieAnimation.Free;
   FBird.Animation.Free;
 end;
@@ -217,6 +262,63 @@ end;
 function GetReflectionTop(AColumn: TSprite): Single;
 begin
   Result := AColumn.Position.Y - AColumn.Asset.Height - C_DOOR_HEIGHT;
+end;
+
+procedure UpdateGridFor(ACollider: TCollider);
+var
+  P: Single;
+  I: Integer; // , J: Integer;
+begin
+  if (ACollider.GridXIndex > 0) then // and (ACollider.GridXCellIndex > 0) then
+  begin
+    GridX[ACollider.GridXIndex].Remove(ACollider); // Colliders[ACollider.GridXCellIndex] := nil;
+    ACollider.GridXIndex := 0;
+    // ACollider.GridXCellIndex := 0;
+  end;
+  if (ACollider.GridYIndex > 0) then // and (ACollider.GridYCellIndex > 0) then
+  begin
+    GridY[ACollider.GridYIndex].Remove(ACollider); // .Colliders[ACollider.GridYCellIndex] := nil;
+    ACollider.GridYIndex := 0;
+    // ACollider.GridYCellIndex := 0;
+  end;
+  if not ACollider.Active then
+    Exit;
+  if (ACollider is TCircleCollider) or ((ACollider is TLineCollider) and (TLineCollider(ACollider).Direction = ldVertical)) then
+  begin
+    P := ACollider.GameObject.Position.X + ACollider.Position.X;
+    if (P < 0) or (P > Length(GridX) * GridXCellWidth) then
+    else
+    begin
+      I := Succ(Trunc(P / GridXCellWidth));
+      // for J := 1 to C_GRID_CELL_CAPACITY do
+      // if not Assigned(GridX[I].Colliders[J]) then
+      // begin
+      // GridX[I].Colliders[J] := ACollider;
+      ACollider.GridXIndex := I;
+      GridX[I].Add(ACollider);
+      // ACollider.GridXCellIndex := J;
+      // Break;
+      // end;
+    end;
+  end;
+  if (ACollider is TCircleCollider) or ((ACollider is TLineCollider) and (TLineCollider(ACollider).Direction = ldHorizontal)) then
+  begin
+    P := ACollider.GameObject.Position.Y + ACollider.Position.Y;
+    if (P < 0) or (P > Length(GridY) * GridYCellHeight) then
+    else
+    begin
+      I := Succ(Trunc(P / GridYCellHeight));
+      // for J := 1 to C_GRID_CELL_CAPACITY do
+      // if not Assigned(GridY[I].Colliders[J]) then
+      // begin
+      // GridY[I].Colliders[J] := ACollider;
+      ACollider.GridYIndex := I;
+      GridY[I].Add(ACollider);
+      // ACollider.GridYCellIndex := J;
+      // Break;
+      // end;
+    end;
+  end;
 end;
 
 procedure TForm1.Restart;
@@ -243,9 +345,16 @@ begin
     FColumns[I].Position := PointF(L, GetRandomTop(FBackground.Asset.Height));
     FColumns[I + 3].Position := PointF(L, GetReflectionTop(FColumns[I]));
   end;
+  { RESTART COLLIDERS }
+  UpdateGridFor(FBird.Colliders[0]);
+  UpdateGridFor(FSkyCollider);
+  UpdateGridFor(FGroundCollider);
   for I := 0 to 5 do
     for LCollider in FColumns[I].Colliders do
+    begin
       TCollider(LCollider).Active := True;
+      UpdateGridFor(LCollider);
+    end;
   FScore := 0;
   GameEngine1.IsGameOver := False;
   Application.OnIdle := OnIdleHandler;
@@ -311,7 +420,7 @@ var
   LDistance: TVector;
   LDotProduct1, LDotProduct2: Single;
 begin
-  Exit(False);
+  // Exit(False);
   if CircleVsLine(ACircleCollider, ASegment, APerpLength) then
   begin
     LDistance.X := ACircleCollider.GameObject.Position.X + ACircleCollider.Radius - (ASegment.GameObject.Position.X + ASegment.Position.X);
@@ -345,107 +454,10 @@ begin
   ADieAnimation.Start;
 end;
 
-procedure TForm1.CollisionDetectionBroadPhase;
-var
-  LGameObject: Pointer;
-  LCollider: Pointer;
-  LCircleCollider: TCircleCollider;
-  LPointF: TPointF;
-  I, J: Integer;
-  CX: array [0 .. C_GRIDX_CELLS_COUNT - 1] of Integer;
-  CY: array [0 .. C_GRIDY_CELLS_COUNT - 1] of Integer;
-  X, Y: Single;
-begin
-  ZeroMemory(@CX, SizeOf(CX));
-  ZeroMemory(@CY, SizeOf(CY));
-  ZeroMemory(@GridX, SizeOf(GridX));
-  ZeroMemory(@GridY, SizeOf(GridY));
-  for LGameObject in GameEngine1.GameObjects do
-    for LCollider in TGameObject(LGameObject).Colliders do
-      if not TCollider(LCollider).Active then
-        Continue
-      else if (TCollider(LCollider) is TLineCollider) then
-        case TLineCollider(LCollider).Direction of
-          ldVertical:
-            begin
-              X := TCollider(LCollider).GameObject.Position.X + TCollider(LCollider).Position.X;
-              if (X < 0) or (X > ClientWidth) then
-                Continue;
-              I := Trunc(X / GridXCellWidth);
-              GridX[I][CX[I]] := LCollider;
-              Inc(CX[I]);
-            end;
-          ldHorizontal:
-            begin
-              Y := TCollider(LCollider).GameObject.Position.Y + TCollider(LCollider).Position.Y;
-              if (Y < 0) or (Y > ClientHeight) then
-                Continue;
-              J := Trunc(Y / GridYCellHeight);
-              GridY[J][CY[J]] := LCollider;
-              Inc(CY[J]);
-            end;
-        end
-      else if (TCollider(LCollider) is TCircleCollider) then
-      begin
-        LCircleCollider := TCircleCollider(LCollider);
-        LPointF := LCircleCollider.GameObject.Position + LCircleCollider.Position;
-        LPointF.Offset(LCircleCollider.Radius, LCircleCollider.Radius);
-        I := Trunc(LPointF.X / GridXCellWidth);
-        J := Trunc(LPointF.Y / GridYCellHeight);
-        GridX[I][CX[I]] := LCollider;
-        GridY[J][CY[J]] := LCollider;
-        Inc(CX[I]);
-        Inc(CY[J]);
-      end;
-end;
-
-// procedure TForm1.CollisionDetectionBroadPhase;
-// var
-// LGameObject: Pointer;
-// LCollider: TCollider;
-// I, J, C: Integer;
-// X: Single;
-// begin
-// C := 0;
-// ZeroMemory(@GridX, SizeOf(GridX));
-// for LGameObject in GameEngine1.GameObjects do
-// begin
-// LCollider := TGameObject(LGameObject).Collider;
-// if Assigned(LCollider) then
-// begin
-// X := LCollider.GameObject.Position.X + LCollider.Position.X;
-// if X < 0 then
-// Continue;
-// if X > ClientWidth then
-// Continue;
-// GridX[0][C] := LCollider;
-// Inc(C);
-// end;
-// end;
-// X := GridXCellWidth;
-// I := 0;
-// while I < Pred(Length(GridX)) do
-// begin
-// C := 0;
-// for J := 0 to Pred(C_GRIDX_CELL_CAPACITY) do
-// begin
-// if not Assigned(GridX[I][J]) then
-// Break;
-// if GridX[I][J].GameObject.Position.X + GridX[I][J].Position.X > X then
-// begin
-// GridX[Succ(I)][C] := GridX[I][J];
-// GridX[I][J] := nil;
-// Inc(C);
-// end;
-// end;
-// X := X + GridXCellWidth;
-// Inc(I);
-// end;
-// end;
-
 procedure TForm1.UpdateScene;
 var
   LBirdCollider: TCircleCollider;
+  LCollider: Pointer;
   LPerpLength: Single;
   L: Single;
   I: Integer;
@@ -483,7 +495,12 @@ begin
     end;
   end;
   { COLLISION DETECTION BROAD PHASE }
-  CollisionDetectionBroadPhase;
+  UpdateGridFor(FBird.Colliders[0]);
+  // for I := 0 to 2 do
+  // UpdateGridFor(FScoreCollider[I]);
+  for I := 0 to 5 do
+    for LCollider in FColumns[I].Colliders do
+      UpdateGridFor(LCollider);
   { COLLISION DETECTION }
   LBirdCollider := TCircleCollider(FBird.Colliders[0]);
   if CircleVsLine(LBirdCollider, FGroundCollider, LPerpLength) then
@@ -567,9 +584,9 @@ var
   X: Integer;
   LRectF: TRectF;
   LColor: TColor;
-  I, C: Integer;
+  // I, C: Integer;
 begin
-  X := Round(Succ(AIndex) * GridXCellWidth);
+  X := Round(AIndex * GridXCellWidth);
   ACanvas.MoveTo(X, 0);
   LColor := ACanvas.Pen.Color;
   ACanvas.Pen.Color := clLtGray;
@@ -577,13 +594,13 @@ begin
   ACanvas.LineTo(X, AHeight);
   ACanvas.Pen.Color := LColor;
   ACanvas.Pen.Style := psSolid;
-  C := 0;
-  for I := 0 to Pred(Length(GridX[AIndex])) do
-    if Assigned(GridX[AIndex][I]) then
-      Inc(C);
+  // C := 0;
+  // for I := 1 to C_GRID_CELL_CAPACITY do
+  // if Assigned(GridX[AIndex].Colliders[I]) then
+  // Inc(C);
   LRectF := RectF(0, AHeight - 100, GridXCellWidth, AHeight - 10);
-  LRectF.Offset(AIndex * GridXCellWidth, 0);
-  DrawText(ACanvas, 12, LRectF.Round, IntToStr(C), [tfSingleLine, tfCenter, tfBottom]);
+  LRectF.Offset(Pred(AIndex) * GridXCellWidth, 0);
+  DrawText(ACanvas, 12, LRectF.Round, IntToStr( { C } GridX[AIndex].Count), [tfSingleLine, tfCenter, tfBottom]);
 end;
 
 procedure DrawGridY(ACanvas: TCanvas; AIndex, AWidth: Integer);
@@ -591,9 +608,9 @@ var
   Y: Integer;
   LRectF: TRectF;
   LColor: TColor;
-  I, C: Integer;
+  // I, C: Integer;
 begin
-  Y := Round(Succ(AIndex) * GridYCellHeight);
+  Y := Round(AIndex * GridYCellHeight);
   ACanvas.MoveTo(0, Y);
   LColor := ACanvas.Pen.Color;
   ACanvas.Pen.Color := clLtGray;
@@ -601,13 +618,13 @@ begin
   ACanvas.LineTo(AWidth, Y);
   ACanvas.Pen.Color := LColor;
   ACanvas.Pen.Style := psSolid;
-  C := 0;
-  for I := 0 to Pred(Length(GridY[AIndex])) do
-    if Assigned(GridY[AIndex][I]) then
-      Inc(C);
+  // C := 0;
+  // for I := 1 to C_GRID_CELL_CAPACITY do
+  // if Assigned(GridY[AIndex].Colliders[I]) then
+  // Inc(C);
   LRectF := RectF(10, 0, 100, GridYCellHeight);
-  LRectF.Offset(0, AIndex * GridYCellHeight);
-  DrawText(ACanvas, 12, LRectF.Round, IntToStr(C), [tfSingleLine, tfLeft, tfVerticalCenter]);
+  LRectF.Offset(0, Pred(AIndex) * GridYCellHeight);
+  DrawText(ACanvas, 12, LRectF.Round, IntToStr( { C } GridY[AIndex].Count), [tfSingleLine, tfLeft, tfVerticalCenter]);
 end;
 
 procedure TForm1.FormPaint(Sender: TObject);
@@ -671,10 +688,10 @@ begin
       if TCollider(LCollider) is TLineCollider then
         DrawLineCollider(Canvas, TLineCollider(LCollider));
   { DRAW X GRID }
-  for I := 0 to Pred(Length(GridX)) do
+  for I := 1 to Length(GridX) do
     DrawGridX(Canvas, I, ClientHeight);
   { DRAW Y GRID }
-  for I := 0 to Pred(Length(GridY)) do
+  for I := 1 to Length(GridY) do
     DrawGridY(Canvas, I, ClientWidth);
 {$ENDIF}
 end;
