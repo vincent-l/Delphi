@@ -5,7 +5,8 @@ interface
 uses
   Winapi.Windows,
   System.Classes, System.Types,
-  Vcl.Graphics, Vcl.Imaging.pngimage;
+  Vcl.Graphics, Vcl.Imaging.pngimage,
+  CollisionsDetection;
 
 const
   C_GRAVITY = 1;
@@ -27,15 +28,6 @@ type
     property Width: Integer read FWidth;
     property Height: Integer read FHeight;
     property Handle: THandle read GetHandle;
-  end;
-
-  TGameObject = class;
-
-  TCollider = class
-    Active: Boolean; // !!
-    Position: TPointF; // relative
-    GameObject: TGameObject;
-    constructor Create;
   end;
 
   TRigidbody = class
@@ -162,13 +154,6 @@ procedure TGameObject.AddCollider(ACollider: TCollider);
 begin
   ACollider.GameObject := Self;
   FColliders.Add(ACollider);
-end;
-
-{ TCollider }
-
-constructor TCollider.Create;
-begin
-  Active := True;
 end;
 
 { TSprite }

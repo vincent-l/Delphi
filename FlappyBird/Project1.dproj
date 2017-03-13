@@ -85,6 +85,7 @@
             <FormType>dfm</FormType>
         </DCCReference>
         <DCCReference Include="GameEngine.pas"/>
+        <DCCReference Include="CollisionsDetection.pas"/>
         <RcItem Include="Sprites\sky.png">
             <ResourceType>RCDATA</ResourceType>
             <ResourceId>sky</ResourceId>
