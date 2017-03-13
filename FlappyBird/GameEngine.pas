@@ -68,6 +68,8 @@ type
     FGameObjects: TList;
     function GetAsset(const &Name: string): TAsset;
   public
+    Width: Integer;
+    Height: Integer;
     IsGameOver: Boolean;
     constructor Create;
     destructor Destroy; override;
