@@ -31,6 +31,11 @@ type
     IsDead: Boolean;
   end;
 
+  TBackground = class(TSprite)
+  protected
+    procedure Update; override;
+  end;
+
   TForm1 = class(TForm)
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
@@ -38,8 +43,8 @@ type
     procedure FormPaint(Sender: TObject);
   private
     FUpForce: TPointF;
-    FBackground, FBackground2: TSprite;
-    FGround, FGround2: TSprite;
+    FBackground1, FBackground2: TBackground;
+    FGround: TSprite;
     FGroundCollider: THorzLineCollider;
     FSkyCollider: THorzLineCollider;
     FBird: TBird;
@@ -65,7 +70,7 @@ implementation
 
 const
 {$IFDEF DEBUGVIEW}
-  C_SCALE_FACTOR = 0.75;
+  C_SCALE_FACTOR = 0.5;
 {$ENDIF}
   C_ANIM_BIRD_IDLE = 0;
   C_ANIM_BIRD_FLAP = 1;
@@ -89,15 +94,17 @@ var
   I: Integer;
 begin
   { SKY }
-  FBackground := GameEngine1.CreateSprite<TSprite>;
-  FBackground.Asset := GameEngine1.Asset['sky'];
-  FBackground.AddRigidbody(0);
+  FBackground1 := GameEngine1.CreateSprite<TBackground>;
+  FBackground1.Asset := GameEngine1.Asset['sky'];
+  FBackground1.AddRigidbody(0);
   FSkyCollider := THorzLineCollider.Create;
-  FSkyCollider.Position.X := FBackground.Asset.Width - 100;
-  FSkyCollider.Vector := Vector(200 - FBackground.Asset.Width, 0);
+  FSkyCollider.Position.X := FBackground1.Asset.Width - 100;
+  FSkyCollider.Vector := Vector(200 - FBackground1.Asset.Width, 0);
   FSkyCollider.CalcLeftNormal;
   { SKY 2 }
-  FBackground2 := GameEngine1.CreateSprite<TSprite>(FBackground);
+  FBackground2 := GameEngine1.CreateSprite<TBackground>;
+  FBackground2.Asset := FBackground1.Asset;
+  FBackground2.AddRigidbody(0);
   { COLUMNS }
   LColumn := GameEngine1.Asset['column'];
   for I := 0 to 5 do
@@ -132,20 +139,24 @@ begin
   FBird.Animation := TBirdAnimation.Create;
   FBird.Animation.FSprite := FBird;
   { GROUND }
-  FGround := GameEngine1.CreateSprite<TSprite>;
+  FGround := GameEngine1.CreateSprite<TSprite>(FBackground1);
   FGround.Asset := GameEngine1.Asset['ground'];
   FGround.Position.Y := ClientHeight - FGround.Asset.Height;
-  FGroundCollider := THorzLineCollider.Create;
-  FGroundCollider.Position.X := 100;
-  FGroundCollider.Position.Y := 454;
-  FGroundCollider.Vector := Vector(FGround.Asset.Width - 200, 0);
-  FGroundCollider.CalcLeftNormal;
   { GROUND 2 }
-  FGround2 := GameEngine1.CreateSprite<TSprite>(FGround);
+  with GameEngine1.CreateSprite<TSprite>(FBackground2) do
+  begin
+    Asset := FGround.Asset;
+    Position.Y := FGround.Position.Y
+  end;
   { SCENE }
   LGameObject := TGameObject.Create;
   GameEngine1.GameObjects.Add(LGameObject);
   LGameObject.AddCollider(FSkyCollider);
+  FGroundCollider := THorzLineCollider.Create;
+  FGroundCollider.Position.X := 100;
+  FGroundCollider.Position.Y := FGround.Position.Y + 146;
+  FGroundCollider.Vector := Vector(FGround.Asset.Width - 200, 0);
+  FGroundCollider.CalcLeftNormal;
   LGameObject.AddCollider(FGroundCollider);
 end;
 
@@ -160,9 +171,9 @@ begin
   InitializeAssets;
   InitializeGameObjects;
   FDieAnimation := TDieAnimation.Create;
-  FUpForce.Y := -10 * GameEngine1.Gravity.Y;
+  FUpForce.Y := -10 * GameEngine.C_GRAVITY;
   CollisionsDetection.GridXCellWidth := ClientWidth / C_GRIDX_CELLS_COUNT;
-  CollisionsDetection.GridYCellHeight := (FBackground.Position.Y + FGroundCollider.Position.Y + 1) / Length(GridY);
+  CollisionsDetection.GridYCellHeight := (FBackground1.Position.Y + FGroundCollider.Position.Y + 1) / Length(GridY);
   // InitializeGrids;
   GridYAdd(FSkyCollider);
   GridYAdd(FGroundCollider);
@@ -199,15 +210,14 @@ begin
   FBird.Position.Y := ClientHeight / 2 - FBird.Asset.Height / 2;
   FBird.Rigidbody.Velocity.X := FUpForce.X;
   FBird.Rigidbody.Velocity.Y := FUpForce.Y;
-  FBackground.Position := PointF(0, 0);
-  FBackground.Rigidbody.Velocity.X := -4;
-  FBackground2.Position := PointF(FBackground.Asset.Width, 0);
-  FGround.Position.X := 0;
-  FGround2.Position := PointF(FGround.Asset.Width, FGround.Position.Y);
+  FBackground1.Position.X := 0;
+  FBackground1.Rigidbody.Velocity.X := -4;
+  FBackground2.Position.X := FBackground1.Asset.Width;
+  FBackground2.Rigidbody.Velocity.X := FBackground1.Rigidbody.Velocity.X;
   for I := 0 to 2 do
   begin
-    L := FBackground.Asset.Width + (I * (FBackground.Asset.Width + FColumns[I].Asset.Width) / 3);
-    FColumns[I].Position := PointF(L, GetRandomTop(FBackground.Asset.Height));
+    L := FBackground1.Asset.Width + (I * (FBackground1.Asset.Width + FColumns[I].Asset.Width) / 3);
+    FColumns[I].Position := PointF(L, GetRandomTop(FBackground1.Asset.Height));
     FColumns[I + 3].Position := PointF(L, GetReflectionTop(FColumns[I]));
   end;
   { ACTIVATE COLLIDERS }
@@ -279,7 +289,6 @@ var
   LDistance: TVector;
   LDotProduct1, LDotProduct2: Single;
 begin
-  // Exit(False);
   if CircleVsLine(ACircleCollider, ASegment, APerpLength) then
   begin
     LDistance.X := TGameObject(ACircleCollider.GameObject).Position.X + ACircleCollider.Radius - (TGameObject(ASegment.GameObject).Position.X + ASegment.Position.X);
@@ -313,6 +322,15 @@ begin
   ADieAnimation.Start;
 end;
 
+{ TBackground }
+
+procedure TBackground.Update;
+begin
+  inherited;
+  if Position.X < -Asset.Width then
+    Position.Offset(Asset.Width * 2, 0);
+end;
+
 procedure TForm1.UpdateScene;
 var
   LBirdCollider: TCircleCollider;
@@ -322,31 +340,16 @@ var
   I: Integer;
 begin
   GameEngine1.UpdateScene;
-  FBird.Position.Offset(FBird.Rigidbody.Velocity.ToPointF);
-  FBackground.Position.Offset(FBackground.Rigidbody.Velocity.ToPointF);
-  FBackground2.Position.Offset(FBackground.Rigidbody.Velocity.ToPointF);
-  FGround.Position.Offset(FBackground.Rigidbody.Velocity.ToPointF);
-  FGround2.Position.Offset(FBackground.Rigidbody.Velocity.ToPointF);
-  if FBackground.Position.X < -FBackground.Asset.Width then
-  begin
-    FBackground.Position.Offset(FBackground.Asset.Width * 2, 0);
-    FGround.Position.Offset(FGround.Asset.Width * 2, 0);
-  end
-  else if FBackground2.Position.X < -FBackground.Asset.Width then
-  begin
-    FBackground2.Position.Offset(FBackground.Asset.Width * 2, 0);
-    FGround2.Position.Offset(FGround.Asset.Width * 2, 0);
-  end;
   for I := 0 to 2 do
   begin
-    FColumns[I].Position.Offset(FBackground.Rigidbody.Velocity.ToPointF);
-    FColumns[I + 3].Position.Offset(FBackground.Rigidbody.Velocity.ToPointF);
+    FColumns[I].Position.Offset(FBackground1.Rigidbody.Velocity.ToPointF);
+    FColumns[I + 3].Position.Offset(FBackground1.Rigidbody.Velocity.ToPointF);
     if FColumns[I].Position.X < -FColumns[I].Asset.Width then
     begin
-      L := FBackground.Asset.Width + FColumns[I].Asset.Width;
+      L := FBackground1.Asset.Width + FColumns[I].Asset.Width;
       FColumns[I].Position.Offset(L, 0);
       FColumns[I + 3].Position.Offset(L, 0);
-      FColumns[I].Position.Y := GetRandomTop(FBackground.Asset.Height);
+      FColumns[I].Position.Y := GetRandomTop(FBackground1.Asset.Height);
       FColumns[I + 3].Position.Y := GetReflectionTop(FColumns[I]);
       FColumnColliders[I].Active := True;
       FColumnColliders[I + 3].Active := True;
@@ -362,36 +365,37 @@ begin
   LBirdCollider := TCircleCollider(FBird.Colliders[0]);
   if CircleVsLine(LBirdCollider, FGroundCollider, LPerpLength) then
   begin
-    FBackground.Rigidbody.Velocity.X := 0;
+    FBackground1.Rigidbody.Velocity.X := 0;
+    FBackground2.Rigidbody.Velocity.X := 0;
     Die(FDieAnimation, FBird, ResolveCircleVsLine(LBirdCollider, FGroundCollider, LPerpLength).ToPointF);
   end
   else
   begin
-    if not FBird.IsDead then
-      for I := 0 to 2 do
-        if FColumnColliders[I].Active and CircleVsSegment(LBirdCollider, FColumnColliders[I], LPerpLength) then
-        begin
-          FBackground.Rigidbody.Velocity.X := 0;
-          Die(FDieAnimation, FBird, ResolveCircleVsLine(LBirdCollider, FColumnColliders[I], LPerpLength).ToPointF);
-        end
-        else if FColumnColliders[I + 3].Active and CircleVsSegment(LBirdCollider, FColumnColliders[I + 3], LPerpLength) then
-        begin
-          FBackground.Rigidbody.Velocity.X := 0;
-          Die(FDieAnimation, FBird, ResolveCircleVsLine(LBirdCollider, FColumnColliders[I + 3], LPerpLength).ToPointF);
-        end
-        else if FScoreCollider[I].Active and CircleVsLine(LBirdCollider, FScoreCollider[I], LPerpLength) then
-        begin
-          FColumnColliders[I].Active := False;
-          FColumnColliders[I + 3].Active := False;
-          FScoreCollider[I].Active := False;
-          Inc(FScore);
-        end;
-    if CircleVsLine(LBirdCollider, FSkyCollider, LPerpLength) then
-    begin
-      FBird.Position.Offset(ResolveCircleVsLine(LBirdCollider, FSkyCollider, LPerpLength).ToPointF);
-      FBird.Rigidbody.Velocity.X := 0;
-      FBird.Rigidbody.Velocity.Y := 0;
-    end;
+    // if not FBird.IsDead then
+    // for I := 0 to 2 do
+    // if FColumnColliders[I].Active and CircleVsSegment(LBirdCollider, FColumnColliders[I], LPerpLength) then
+    // begin
+    // FBackground.Rigidbody.Velocity.X := 0;
+    // Die(FDieAnimation, FBird, ResolveCircleVsLine(LBirdCollider, FColumnColliders[I], LPerpLength).ToPointF);
+    // end
+    // else if FColumnColliders[I + 3].Active and CircleVsSegment(LBirdCollider, FColumnColliders[I + 3], LPerpLength) then
+    // begin
+    // FBackground.Rigidbody.Velocity.X := 0;
+    // Die(FDieAnimation, FBird, ResolveCircleVsLine(LBirdCollider, FColumnColliders[I + 3], LPerpLength).ToPointF);
+    // end
+    // else if FScoreCollider[I].Active and CircleVsLine(LBirdCollider, FScoreCollider[I], LPerpLength) then
+    // begin
+    // FColumnColliders[I].Active := False;
+    // FColumnColliders[I + 3].Active := False;
+    // FScoreCollider[I].Active := False;
+    // Inc(FScore);
+    // end;
+    // if CircleVsLine(LBirdCollider, FSkyCollider, LPerpLength) then
+    // begin
+    // FBird.Position.Offset(ResolveCircleVsLine(LBirdCollider, FSkyCollider, LPerpLength).ToPointF);
+    // FBird.Rigidbody.Velocity.X := 0;
+    // FBird.Rigidbody.Velocity.Y := 0;
+    // end;
   end;
   { BIRD ANIMATION }
   if FBird.Animation.FStarted then
@@ -584,7 +588,7 @@ end;
 
 procedure TDieAnimation.Animate;
 const
-  ANIM_LENGTH = 2000;
+  ANIM_LENGTH = 1500;
 begin
   if GetTickCount < FLastAnimChangeTime + ANIM_LENGTH then
   else

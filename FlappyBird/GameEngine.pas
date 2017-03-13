@@ -31,18 +31,24 @@ type
   end;
 
   TRigidbody = class
-    Mass: Integer;
+    Mass: Single;
     Velocity: TVector;
   end;
 
   TGameObject = class
   strict private
+    FChildren: TList;
     FRigidbody: TRigidbody;
     FColliders: TList;
+  strict protected
+    FParent: TGameObject;
+  protected
+    procedure Update; virtual;
   public
     Position: TPointF;
     constructor Create;
     destructor Destroy; override;
+    procedure AddChild(AChild: TGameObject);
     property Rigidbody: TRigidbody read FRigidbody;
     procedure AddRigidbody(AMass: Integer);
     property Colliders: TList read FColliders;
@@ -60,7 +66,6 @@ type
     FAssets: TStrings;
     FPrivateFonts: TList;
     FGameObjects: TList;
-    FGravity: TPointF;
     function GetAsset(const &Name: string): TAsset;
   public
     IsGameOver: Boolean;
@@ -68,10 +73,9 @@ type
     destructor Destroy; override;
     function CreateAsset(const AResource: string; ASize: TSize; ACount: Integer = 1): TAsset;
     function CreateFont(const AResource: string): TFont;
-    function CreateSprite<T: TSprite, constructor>(AParent: TSprite = nil): T;
+    function CreateSprite<T: TSprite, constructor>(AParent: TGameObject = nil): T;
     procedure UpdateScene;
     procedure DrawScene(ACanvas: TCanvas);
-    property Gravity: TPointF read FGravity;
     property Asset[const &Name: string]: TAsset read GetAsset;
     property GameObjects: TList read FGameObjects;
   end;
@@ -136,12 +140,22 @@ destructor TGameObject.Destroy;
 var
   LPointer: Pointer;
 begin
+  if FChildren <> nil then
+    FChildren.Free;
   if FRigidbody <> nil then
     FRigidbody.Free;
   for LPointer in FColliders do
     TCollider(LPointer).Free;
   FColliders.Free;
   inherited;
+end;
+
+procedure TGameObject.AddChild(AChild: TGameObject);
+begin
+  if FChildren = nil then
+    FChildren := TList.Create;
+  FChildren.Add(AChild);
+  AChild.FParent := Self;
 end;
 
 procedure TGameObject.AddRigidbody(AMass: Integer);
@@ -156,13 +170,28 @@ begin
   FColliders.Add(ACollider);
 end;
 
+procedure TGameObject.Update;
+begin
+  if Assigned(Rigidbody) then
+  begin
+    Rigidbody.Velocity.Y := Rigidbody.Velocity.Y + (Rigidbody.Mass * C_GRAVITY);
+    Position.Offset(Rigidbody.Velocity.ToPointF);
+  end;
+end;
+
 { TSprite }
 
 procedure TSprite.Draw(ACanvas: TCanvas);
 const
   C_BLENDFUNCTION: TBlendFunction = (BlendOp: AC_SRC_OVER; SourceConstantAlpha: 255; AlphaFormat: AC_SRC_ALPHA);
+var
+  LPoint: TPoint;
 begin
-  AlphaBlend(ACanvas.Handle, Round(Position.X), Round(Position.Y), Asset.Width, Asset.Height, Asset.Handle, Asset.Offset[CurrentFrame], 0, Asset.Width, Asset.Height, C_BLENDFUNCTION);
+  if FParent = nil then
+    LPoint := Position.Round
+  else
+    LPoint := (FParent.Position + Position).Round;
+  AlphaBlend(ACanvas.Handle, LPoint.X, LPoint.Y, Asset.Width, Asset.Height, Asset.Handle, Asset.Offset[CurrentFrame], 0, Asset.Width, Asset.Height, C_BLENDFUNCTION);
 end;
 
 { TGameEngine }
@@ -172,7 +201,6 @@ begin
   FAssets := TStringList.Create(True);
   FPrivateFonts := TList.Create;
   FGameObjects := TList.Create;
-  FGravity.Y := C_GRAVITY;
 end;
 
 destructor TGameEngine.Destroy;
@@ -213,26 +241,20 @@ begin
   FPrivateFonts.Add(Result);
 end;
 
-function TGameEngine.CreateSprite<T>(AParent: TSprite = nil): T;
+function TGameEngine.CreateSprite<T>(AParent: TGameObject = nil): T;
 begin
   Result := T.Create;
   if Assigned(AParent) then
-    Result.Asset := AParent.Asset;
+    AParent.AddChild(Result);
   FGameObjects.Add(Pointer(Result));
 end;
 
 procedure TGameEngine.UpdateScene;
 var
   LGameObject: Pointer;
-  LSprite: TSprite;
 begin
   for LGameObject in FGameObjects do
-    if (TGameObject(LGameObject) is TSprite) then
-    begin
-      LSprite := TSprite(LGameObject);
-      if Assigned(LSprite.Rigidbody) then
-        LSprite.Rigidbody.Velocity.Offset(LSprite.Rigidbody.Mass * FGravity);
-    end;
+    TGameObject(LGameObject).Update;
 end;
 
 procedure TGameEngine.DrawScene(ACanvas: TCanvas);

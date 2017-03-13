@@ -141,38 +141,20 @@ begin
 end;
 
 procedure UpdateGridFor(ACollider: TCollider);
-// var
-// P: Single;
-// I: Integer;
 begin
   GridXRemove(ACollider);
   GridYRemove(ACollider);
   if not ACollider.Active then
     Exit;
-  if (ACollider is TCircleCollider) or (ACollider is TVertLineCollider) or (ACollider is TVertSegmentCollider) then
+  if (ACollider is TCircleCollider) then
+  begin
     GridXAdd(ACollider);
-  // begin
-  // P := TGameObject(ACollider.GameObject).Position.X + ACollider.Position.X;
-  // if (P < 0) or (P > Length(GridX) * GridXCellWidth) then
-  // else
-  // begin
-  // I := Succ(Trunc(P / GridXCellWidth));
-  // ACollider.GridXIndex := I;
-  // GridX[I].Add(ACollider);
-  // end;
-  // end;
-  if (ACollider is TCircleCollider) or (ACollider is THorzLineCollider) or (ACollider is THorzSegmentCollider) then
     GridYAdd(ACollider);
-  // begin
-  // P := TGameObject(ACollider.GameObject).Position.Y + ACollider.Position.Y;
-  // if (P < 0) or (P > Length(GridY) * GridYCellHeight) then
-  // else
-  // begin
-  // I := Succ(Trunc(P / GridYCellHeight));
-  // ACollider.GridYIndex := I;
-  // GridY[I].Add(ACollider);
-  // end;
-  // end;
+  end
+  else if (ACollider is TVertLineCollider) or (ACollider is TVertSegmentCollider) then
+    GridXAdd(ACollider)
+  else if (ACollider is THorzLineCollider) or (ACollider is THorzSegmentCollider) then
+    GridYAdd(ACollider);
 end;
 
 { TCollider }
